@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
     for (const strategy of strategies) {
       const result = await strategy.fn();
       if (result.ok) {
-        return new NextResponse(result.mp3, {
+        return new NextResponse(new Uint8Array(result.mp3), {
           status: 200,
           headers: {
             "Content-Type": "audio/mpeg",
@@ -330,7 +330,7 @@ export async function POST(req: NextRequest) {
       const fallbackBuf = Buffer.from(
         new Uint8Array(await fallbackRes.arrayBuffer()),
       );
-      return new NextResponse(fallbackBuf, {
+      return new NextResponse(new Uint8Array(fallbackBuf), {
         status: 200,
         headers: {
           "Content-Type": "audio/wav",

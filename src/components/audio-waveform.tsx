@@ -31,20 +31,19 @@ export function AudioWaveform({
 }: AudioWaveformProps) {
   // Pre-generate bar configs with pseudo-random heights/delays
   // (deterministic so SSR and client match)
-  const barConfigs = React.useMemo(() => {
-    const configs: { heightPct: number; delayMs: number; durationMs: number }[] =
-      [];
-    // Use a simple seeded pseudo-random for determinism
-    let seed = 42;
-    const rand = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
+const barConfigs = React.useMemo(() => {
+    const configs: { heightPct: number; delayMs: number; durationMs: number }[] = [];
+    // Deterministic generation based on index — guarantees SSR/client match
     for (let i = 0; i < bars; i++) {
+      // Use sine-based pseudo-random for determinism (no Math.random)
+      const r1 = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+      const r2 = (Math.sin(i * 78.233) * 43758.5453) % 1;
+      const r3 = (Math.sin(i * 39.346) * 43758.5453) % 1;
+      const rand = (r: number) => Math.abs(r - Math.floor(r));
       configs.push({
-        heightPct: 30 + rand() * 70, // 30-100%
-        delayMs: Math.floor(rand() * 800),
-        durationMs: 600 + Math.floor(rand() * 600),
+        heightPct: 30 + rand(r1) * 70, // 30-100%
+        delayMs: Math.floor(rand(r2) * 800),
+        durationMs: 600 + Math.floor(rand(r3) * 600),
       });
     }
     return configs;

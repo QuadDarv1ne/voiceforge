@@ -49,6 +49,11 @@ export interface UseSpeechSynthesisReturn {
   paused: boolean;
   /** Start speaking */
   speak: (params: SpeakParams) => void;
+  /** Speak multiple SSML segments sequentially */
+  speakSegments: (
+    segments: import("@/lib/ssml").SpeechSegment[],
+    baseParams: Omit<SpeakParams, "text">,
+  ) => void;
   /** Pause playback */
   pause: () => void;
   /** Resume playback */
@@ -75,16 +80,20 @@ export function useSpeechSynthesis(
     callbacksRef.current = { onStart, onEnd, onError, onPause, onResume };
   }, [onStart, onEnd, onError, onPause, onResume]);
 
-  // Lazy initialiser — avoids calling setState inside an effect.
-  const [supported] = useState<boolean>(() =>
-    typeof window !== "undefined" && "speechSynthesis" in window,
-  );
+  // Hydration-safe: starts as false on both server and client.
+  // The real value is set in a useEffect after hydration to avoid
+  // server/client HTML mismatches (e.g. "Web Speech not supported" banner).
+  const [supported, setSupported] = useState<boolean>(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoiceInfo[]>([]);
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
-    if (!supported) return;
+    const supportedNow =
+      typeof window !== "undefined" && "speechSynthesis" in window;
+    // Set after hydration so server and client HTML render identically
+    if (!supportedNow) return;
+    setSupported(true);
 
     const synth = window.speechSynthesis;
 
@@ -123,17 +132,19 @@ export function useSpeechSynthesis(
       setPaused(false);
       callbacksRef.current.onResume?.();
     };
-    const handleError = (e: SpeechSynthesisErrorEvent) => {
+    // "error" is not in lib.dom overloads for SpeechSynthesis —
+    // attach it as a plain EventListener and cast the event inside.
+    const handleError = (e: Event) => {
       setSpeaking(false);
       setPaused(false);
-      callbacksRef.current.onError?.(e);
+      callbacksRef.current.onError?.(e as SpeechSynthesisErrorEvent);
     };
+    synth.addEventListener("error", handleError as EventListener);
 
     synth.addEventListener("start", handleStart);
     synth.addEventListener("end", handleEnd);
     synth.addEventListener("pause", handlePause);
     synth.addEventListener("resume", handleResume);
-    synth.addEventListener("error", handleError);
 
     return () => {
       synth.removeEventListener("voiceschanged", updateVoices);
