@@ -1,0 +1,189 @@
+# VoiceForge — Установка и запуск
+
+Этот каталог содержит скрипты для автоматической установки всех компонентов
+и запуска проекта одной командой.
+
+## 📋 Что нужно
+
+| Компонент | Назначение | Где взять |
+|-----------|-----------|-----------|
+| **Node.js 20+** | Next.js сервер | https://nodejs.org |
+| **Bun** | Менеджер пакетов, Piper service | `npm i -g bun` |
+| **Git** | Клонирование репозитория | https://git-scm.com |
+
+> Windows: используйте PowerShell (`setup.ps1`, `start.ps1`)
+> Linux / macOS: используйте bash (`setup.sh`, `start.sh`)
+
+---
+
+## 🚀 Быстрый старт (3 шага)
+
+```bash
+# 1. Клонировать репозиторий
+git clone https://github.com/QuadDarv1ne/voiceforge.git
+cd voiceforge
+
+# 2. Установить всё (зависимости + Piper + голоса)
+#    Windows:
+powershell -ExecutionPolicy Bypass -File setup/setup.ps1
+#    Linux / macOS:
+chmod +x setup/setup.sh && ./setup/setup.sh
+
+# 3. Запустить проект
+#    Windows:
+powershell -ExecutionPolicy Bypass -File setup/start.ps1
+#    Linux / macOS:
+./setup/start.sh
+```
+
+Откройте **http://localhost:3000** — готово.
+
+---
+
+## 📂 Структура после установки
+
+```
+voiceforge/
+├── setup/                  ← этот каталог
+│   ├── README.md
+│   ├── setup.ps1           ← установка (Windows)
+│   ├── setup.sh            ← установка (Linux/macOS)
+│   ├── start.ps1           ← запуск (Windows)
+│   ├── start.sh            ← запуск (Linux/macOS)
+│   ├── stop.ps1            ← остановка (Windows)
+│   └── stop.sh             ← остановка (Linux/macOS)
+├── piper-tts/              ← создаётся автоматически
+│   ├── piper/              ← бинарник piper.exe + espeak-ng-data
+│   └── voices/             ← .onnx модели (7 голосов, ~540 МБ)
+├── mini-services/
+│   └── piper-local/        ← HTTP-сервер обёртка над piper (порт 3005)
+├── src/                    ← Next.js приложение
+└── ...
+```
+
+---
+
+## 🎤 Доступные голоса Piper
+
+После установки `setup/setup.*` в `piper-tts/voices/` появятся:
+
+| Файл | Голос | Язык | Пол | Качество | Размер |
+|------|-------|------|-----|---------|--------|
+| `ru_RU-dmitri-medium.onnx` | Дмитрий | 🇷🇺 Русский | Муж | medium | 60 МБ |
+| `ru_RU-irina-medium.onnx` | Ирина | 🇷🇺 Русский | Жен | medium | 60 МБ |
+| `ru_RU-denis-medium.onnx` | Денис | 🇷🇺 Русский | Муж | medium | 60 МБ |
+| `ru_RU-ruslan-medium.onnx` | Руслан | 🇷🇺 Русский | Муж | medium | 60 МБ |
+| `en_US-lessac-high.onnx` | Lessac | 🇺🇸 English | Жен | **high** | 109 МБ |
+| `en_US-libritts-high.onnx` | LibriTTS | 🇺🇸 English | Жен | **high** | 130 МБ |
+| `en_GB-alan-medium.onnx` | Alan | 🇬🇧 English | Муж | medium | 60 МБ |
+
+---
+
+## ⚙️ Движки TTS в приложении
+
+| Движок | Описание | Требует интернет |
+|--------|----------|-----------------|
+| **Web Speech** | Встроенный в браузер, мгновенно | Нет |
+| **FreeTTS.ru** | 298 нейроголосов, MP3 | Да |
+| **Piper (офлайн)** | Локальный нейросетевой синтез | **Нет** |
+| **Z.ai SDK** | Серверный движок Z.ai | Да |
+
+Fallback-цепочка при недоступности FreeTTS.ru:
+`FreeTTS.ru → Piper (локально) → Z.ai SDK`
+
+---
+
+## 🔧 Команды
+
+### Установка
+
+```bash
+# Windows
+powershell -ExecutionPolicy Bypass -File setup/setup.ps1
+
+# Linux / macOS
+./setup/setup.sh
+```
+
+Что делает:
+1. `bun install` — зависимости проекта
+2. Скачивает `piper_windows_amd64.zip` (или linux/mac) → распаковывает в `piper-tts/piper/`
+3. Скачивает 7 голосовых моделей (.onnx + .json) в `piper-tts/voices/`
+
+### Запуск
+
+```bash
+# Windows
+powershell -ExecutionPolicy Bypass -File setup/start.ps1
+
+# Linux / macOS
+./setup/start.sh
+```
+
+Что делает:
+1. Запускает Piper mini-service на порту **3005** (фон)
+2. Запускает Next.js dev-сервер на порту **3000** (фон)
+3. Выводит ссылки и проверяет здоровье сервисов
+
+### Остановка
+
+```bash
+# Windows
+powershell -ExecutionPolicy Bypass -File setup/stop.ps1
+
+# Linux / macOS
+./setup/stop.sh
+```
+
+Останавливает все фоновые процессы (piper + next.js).
+
+---
+
+## 🌐 Z.ai SDK конфигурация (опционально)
+
+Для работы движка Z.ai нужен файл `~/.z-ai-config`:
+
+```json
+{
+  "baseUrl": "https://internal-api.z.ai/v1",
+  "apiKey": "Z.ai",
+  "token": "ВАШ_JWT_ТОКЕН",
+  "userId": "ВАШ_USER_ID",
+  "chatId": "ВАШ_CHAT_ID"
+}
+```
+
+Как получить:
+1. Зайдите на https://chat.z.ai
+2. DevTools (F12) → Application → Local Storage
+3. Скопируйте `token`, `userId`, `chatId`
+
+> Если Z.ai не настроен — приложение работает с тремя другими движками.
+
+---
+
+## ❌ Устранение ошибок
+
+### «piper.exe not found»
+Запустите `setup/setup.ps1` (или `.sh`) — скрипт скачает бинарник.
+
+### «Piper service unavailable» на порту 3005
+Проверьте: `curl http://localhost:3005/health`
+Если не отвечает — запустите `setup/start.ps1` заново.
+
+### «bun: command not found»
+Установите: `npm install -g bun`
+
+### Порт 3000 или 3005 занят
+Измените порт: `$env:PIPER_PORT=3006; bun run mini-services/piper-local/index.ts`
+Next.js: `npx next dev -p 3001`
+
+### Модели не скачиваются (HuggingFace)
+Проверьте интернет. Модели на `huggingface.co/rhasspy/piper-voices`.
+Можно скачать вручную и положить в `piper-tts/voices/`.
+
+---
+
+## 📄 Лицензия
+
+Все права принадлежат **Дуплей Максиму Игоревичу**.
