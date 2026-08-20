@@ -15,12 +15,15 @@ export interface FreeTtsLanguage {
 }
 
 export interface FreeTtsVoice {
-  /** Voice code, e.g. "ru-RU001", "en-US058" */
+  /** Voice code — hash ID from the live freetts API (e.g. "tOvhtxQAgtH")
+   *  or old-style code in the static catalogue (e.g. "ru-RU001"). */
   code: string;
-  /** Russian voice name, e.g. "Ермилов" */
+  /** Russian voice name, e.g. "Маргарита" */
   name: string;
   /** "m" for male, "f" for female */
   gender: "m" | "f";
+  /** BCP 47 locale tag from the live API (e.g. "ru-RU"), if available */
+  lang?: string;
 }
 
 export const FREETTS_LANGUAGES: FreeTtsLanguage[] = [
@@ -385,16 +388,23 @@ export const FREETTS_VOICES: FreeTtsVoice[] = [
 ];
 
 /**
- * Get all voices that match a language code (by ISO prefix).
- * E.g. for "ru" returns all "ru-RU0xx" voices.
+ * Get all voices that match a language code.
+ *
+ * Note: The static catalogue uses old-style codes like "ru-RU001".
+ * The live API (fetched at runtime via /api/freetts/voices) returns
+ * hash IDs like "tOvhtxQAgtH" with a "lang" field of "ru-RU".
+ * This function matches by prefix for the static catalogue.
+ * The live API filtering is done server-side in the voices route.
  */
 export function getFreeTtsVoicesByLang(langCode: string): FreeTtsVoice[] {
   return FREETTS_VOICES.filter((v) => v.code.startsWith(langCode));
 }
 
-/** Default voice — Борис (Russian, male) */
+/** Default voice — Маргарита (Russian, female).
+ *  Uses the live API hash ID; falls back to a static code for the
+ *  old catalogue if the live API is unavailable. */
 export const FREETTS_DEFAULT_VOICE: FreeTtsVoice = {
-  code: "ru-RU066",
-  name: "Борис",
-  gender: "m",
+  code: "tOvhtxQAgtH",
+  name: "Маргарита",
+  gender: "f",
 };

@@ -25,7 +25,6 @@ import {
   getFreeTtsVoicesByLang,
   type FreeTtsVoice,
 } from "@/lib/freetts-voices";
-
 const FAV_STORAGE_KEY = "voiceforge:freetts-favorites";
 
 interface FreettsVoicePickerProps {
@@ -69,11 +68,41 @@ export function FreettsVoicePicker({
   const [favorites, setFavorites] = React.useState<Set<string>>(
     new Set(),
   );
+  const [liveVoices, setLiveVoices] = React.useState<FreeTtsVoice[] | null>(
+    null,
+  );
 
   // Load favorites on mount
   React.useEffect(() => {
     setFavorites(loadFavorites());
   }, []);
+
+  // Load the live voice catalogue from the server API (which in turn
+  // fetches https://freetts.ru/api/list). Falls back to the static
+  // catalogue if the server is unreachable.
+  React.useEffect(() => {
+    let cancelled = false;
+    setLiveVoices(null);
+    if (!freettsLangCode) return;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/freetts/voices?lang=${encodeURIComponent(freettsLangCode)}`,
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && Array.isArray(json.voices)) {
+            setLiveVoices(json.voices as FreeTtsVoice[]);
+          }
+        }
+      } catch {
+        // fall through to static catalogue
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [freettsLangCode]);
 
   // Toggle favorite (preserved across language switches)
   const toggleFavorite = React.useCallback(
@@ -93,8 +122,10 @@ export function FreettsVoicePicker({
 
   const voices = React.useMemo<FreeTtsVoice[]>(() => {
     if (!freettsLangCode) return [];
+    // Prefer the live catalogue (hash IDs); fall back to static snapshot
+    if (liveVoices !== null) return liveVoices;
     return getFreeTtsVoicesByLang(freettsLangCode);
-  }, [freettsLangCode]);
+  }, [freettsLangCode, liveVoices]);
 
   const filteredVoices = React.useMemo(() => {
     let list = voices;

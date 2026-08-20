@@ -80,6 +80,23 @@ export default function Home() {
   const freettsAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [compareOpen, setCompareOpen] = React.useState(false);
   const [freettsPlaying, setFreettsPlaying] = React.useState(false);
+  const [audioCurrentTime, setAudioCurrentTime] = React.useState(0);
+  const [audioDuration, setAudioDuration] = React.useState(0);
+
+  // Auto-play when a new audio URL is set (freetts / z-ai engines)
+  React.useEffect(() => {
+    if (!freettsAudioUrl) return;
+    const el = freettsAudioRef.current;
+    if (!el) return;
+    el.src = freettsAudioUrl;
+    el.playbackRate = rate;
+    el.play().catch(() => {
+      /* user gesture required — user can press play manually */
+    });
+    // Reset progress
+    setAudioCurrentTime(0);
+    setAudioDuration(0);
+  }, [freettsAudioUrl, rate]);
 
   // Load history from localStorage on mount
   React.useEffect(() => {
@@ -228,16 +245,7 @@ export default function Home() {
         if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
         const url = URL.createObjectURL(blob);
         setFreettsAudioUrl(url);
-        // Play after state updates
-        setTimeout(() => {
-          if (freettsAudioRef.current) {
-            freettsAudioRef.current.src = url;
-            freettsAudioRef.current.playbackRate = rate;
-            freettsAudioRef.current.play().catch(() => {
-              /* user gesture required */
-            });
-          }
-        }, 50);
+        // Playback is triggered by the useEffect watching freettsAudioUrl
         if (isFallback) {
           toast.warning("Использован fallback", {
             description: `freetts.ru заблокирован WAF — использован Z.ai SDK (${strategy})`,
@@ -293,15 +301,7 @@ export default function Home() {
         if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
         const url = URL.createObjectURL(blob);
         setFreettsAudioUrl(url);
-        setTimeout(() => {
-          if (freettsAudioRef.current) {
-            freettsAudioRef.current.src = url;
-            freettsAudioRef.current.playbackRate = rate;
-            freettsAudioRef.current.play().catch(() => {
-              /* user gesture required */
-            });
-          }
-        }, 50);
+        // Playback is triggered by the useEffect watching freettsAudioUrl
         toast.success("Синтез завершён", {
           description: "Z.ai SDK · tongtong",
         });

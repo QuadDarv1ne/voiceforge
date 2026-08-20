@@ -8,21 +8,22 @@ import { NextRequest, NextResponse } from "next/server";
  * Request body:
  *   {
  *     "text": string,         // required, max 1024 chars
- *     "voice": string,        // required, e.g. "ru-RU066"
- *     "format": "mp3" | "wav" // optional, default "mp3"
+ *     "voice": string,        // required, voice hash id (e.g. "tOvhtxQAgtH")
  *   }
  *
- * The freetts.ru API is protected by a WAF that blocks server-side
- * requests (TLS fingerprinting). This endpoint tries multiple strategies:
+ * New freetts.ru API flow (2026):
+ *   1. POST /api/synthesis  →  { status: "pending", ... }
+ *   2. Poll GET /api/history until a "done" entry with an audio URL appears
+ *   3. Download the MP3 from the audio URL
  *
- * 1. Direct fetch with realistic browser headers
- * 2. Public CORS proxy fallback (allorigins)
- * 3. If all fail — returns a clear error suggesting to use Web Speech API
+ * The old endpoint (POST /api/v2/s with {voice, text}) was removed.
+ * Voice IDs are now hash strings (e.g. "tOvhtxQAgtH"), not "ru-RU066".
  *
  * Response: binary audio (MP3) or JSON error.
  */
 
-const FREETTS_SYNTH_URL = "https://freetts.ru/api/v2/s";
+const FREETTS_SYNTH_URL = "https://freetts.ru/api/synthesis";
+const FREETTS_HISTORY_URL = "https://freetts.ru/api/history";
 
 const BROWSER_HEADERS: Record<string, string> = {
   Accept: "application/json, text/plain, */*",
@@ -41,182 +42,106 @@ const BROWSER_HEADERS: Record<string, string> = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 };
 
-interface FreettsSynthesisResponse {
-  status: number;
-  message: string;
-  data?: {
-    audioBase64?: string;
-    [k: string]: unknown;
-  };
+// U+2063 INVISIBLE SEPARATOR — the frontend prepends this to the text;
+// the synthesis API rejects the request without it.
+const INVISIBLE_SEP = "\u2063";
+
+interface SynthesisResponse {
+  status: string;
+  message?: string;
+  data?: unknown;
+}
+
+interface HistoryEntry {
+  id: number;
+  name: string;
+  text: string;
+  url: string;
+  status: string;
 }
 
 /**
- * Strategy 1 — direct fetch with realistic browser headers.
+ * Strategy 1 — new freetts.ru API: POST synthesis, poll history, download.
  */
-async function tryDirectFetch(
+async function tryNewApi(
   body: { voice: string; text: string },
 ): Promise<{ ok: true; mp3: Buffer } | { ok: false; reason: string }> {
   try {
-    const res = await fetch(FREETTS_SYNTH_URL, {
+    // 1. Start the synthesis job
+    const synthRes = await fetch(FREETTS_SYNTH_URL, {
       method: "POST",
       headers: BROWSER_HEADERS,
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        voiceid: body.voice,
+        text: INVISIBLE_SEP + body.text,
+      }),
       redirect: "follow",
     });
 
-    if (res.status === 403) {
-      return { ok: false, reason: "WAF blocked (403)" };
-    }
-    if (!res.ok) {
-      return { ok: false, reason: `HTTP ${res.status}` };
+    if (!synthRes.ok) {
+      return { ok: false, reason: `synthesis HTTP ${synthRes.status}` };
     }
 
-    const json = (await res.json()) as FreettsSynthesisResponse;
-    if (json.status !== 200 || !json.data?.audioBase64) {
-      return { ok: false, reason: json.message || "No audio in response" };
+    const synthJson = (await synthRes.json()) as SynthesisResponse;
+    if (synthJson.status === "error") {
+      return {
+        ok: false,
+        reason: synthJson.message || "synthesis returned error",
+      };
     }
 
-    const mp3 = Buffer.from(json.data.audioBase64, "base64");
-    return { ok: true, mp3 };
+    // 2. Poll history until our job is done (freetts synthesizes asynchronously)
+    const deadline = Date.now() + 50000; // max 50s wait
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+
+      const histRes = await fetch(FREETTS_HISTORY_URL, {
+        headers: BROWSER_HEADERS,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!histRes.ok) continue;
+
+      const histJson = (await histRes.json()) as {
+        status: string;
+        data?: HistoryEntry[];
+      };
+      if (histJson.status !== "success" || !Array.isArray(histJson.data)) {
+        continue;
+      }
+
+      // Find the newest entry matching our voice + text
+      const match = histJson.data.find(
+        (e) =>
+          e.status === "done" &&
+          e.name &&
+          e.url &&
+          e.text === body.text,
+      );
+      if (match?.url) {
+        // 3. Download the MP3
+        const audioRes = await fetch(match.url, {
+          headers: {
+            "User-Agent": BROWSER_HEADERS["User-Agent"],
+            Referer: "https://freetts.ru/",
+          },
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!audioRes.ok) {
+          return { ok: false, reason: `audio HTTP ${audioRes.status}` };
+        }
+        const mp3 = Buffer.from(await audioRes.arrayBuffer());
+        if (mp3.length === 0) {
+          return { ok: false, reason: "empty audio" };
+        }
+        return { ok: true, mp3 };
+      }
+    }
+
+    return { ok: false, reason: "synthesis timed out (pending)" };
   } catch (e) {
     return {
       ok: false,
       reason: e instanceof Error ? e.message : "Network error",
-    };
-  }
-}
-
-/**
- * Strategy 2 — public CORS proxy (allorigins). The proxy fetches the URL
- * from its own IP, which may bypass the WAF. We pass our POST body as a
- * JSON-encoded `body` parameter so the proxy can replay it.
- */
-async function tryCorsProxy(
-  body: { voice: string; text: string },
-): Promise<{ ok: true; mp3: Buffer } | { ok: false; reason: string }> {
-  const proxyUrl =
-    "https://api.allorigins.win/raw?url=" +
-    encodeURIComponent(FREETTS_SYNTH_URL);
-
-  try {
-    const res = await fetch(proxyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      return { ok: false, reason: `Proxy HTTP ${res.status}` };
-    }
-
-    const json = (await res.json()) as FreettsSynthesisResponse;
-    if (json.status !== 200 || !json.data?.audioBase64) {
-      return { ok: false, reason: json.message || "Proxy: no audio" };
-    }
-
-    const mp3 = Buffer.from(json.data.audioBase64, "base64");
-    return { ok: true, mp3 };
-  } catch (e) {
-    return {
-      ok: false,
-      reason: e instanceof Error ? e.message : "Proxy network error",
-    };
-  }
-}
-
-/**
- * Strategy 3 — corsproxy.io. Another public CORS proxy that forwards
- * the request with its own TLS fingerprint and IP.
- */
-async function tryCorsProxyIo(
-  body: { voice: string; text: string },
-): Promise<{ ok: true; mp3: Buffer } | { ok: false; reason: string }> {
-  const proxyUrl =
-    "https://corsproxy.io/?" + encodeURIComponent(FREETTS_SYNTH_URL);
-
-  try {
-    const res = await fetch(proxyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://freetts.ru",
-        Referer: "https://freetts.ru/",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      return { ok: false, reason: `corsproxy.io HTTP ${res.status}` };
-    }
-
-    // corsproxy.io may return raw JSON
-    const text = await res.text();
-    let json: FreettsSynthesisResponse;
-    try {
-      json = JSON.parse(text) as FreettsSynthesisResponse;
-    } catch {
-      return { ok: false, reason: "corsproxy.io: invalid JSON" };
-    }
-
-    if (json.status !== 200 || !json.data?.audioBase64) {
-      return { ok: false, reason: json.message || "corsproxy.io: no audio" };
-    }
-
-    const mp3 = Buffer.from(json.data.audioBase64, "base64");
-    return { ok: true, mp3 };
-  } catch (e) {
-    return {
-      ok: false,
-      reason: e instanceof Error ? e.message : "corsproxy.io error",
-    };
-  }
-}
-
-/**
- * Strategy 4 — codetabs proxy. Another fallback.
- */
-async function tryCodetabsProxy(
-  body: { voice: string; text: string },
-): Promise<{ ok: true; mp3: Buffer } | { ok: false; reason: string }> {
-  const proxyUrl =
-    "https://api.codetabs.com/v1/proxy/?quest=" +
-    encodeURIComponent(FREETTS_SYNTH_URL);
-
-  try {
-    const res = await fetch(proxyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      return { ok: false, reason: `codetabs HTTP ${res.status}` };
-    }
-
-    const text = await res.text();
-    let json: FreettsSynthesisResponse;
-    try {
-      json = JSON.parse(text) as FreettsSynthesisResponse;
-    } catch {
-      return { ok: false, reason: "codetabs: invalid JSON" };
-    }
-
-    if (json.status !== 200 || !json.data?.audioBase64) {
-      return { ok: false, reason: json.message || "codetabs: no audio" };
-    }
-
-    const mp3 = Buffer.from(json.data.audioBase64, "base64");
-    return { ok: true, mp3 };
-  } catch (e) {
-    return {
-      ok: false,
-      reason: e instanceof Error ? e.message : "codetabs error",
     };
   }
 }
@@ -234,7 +159,7 @@ export async function POST(req: NextRequest) {
     }
     if (!voice || typeof voice !== "string") {
       return NextResponse.json(
-        { error: "Voice code is required (e.g. ru-RU066)" },
+        { error: "Voice code is required (e.g. tOvhtxQAgtH)" },
         { status: 400 },
       );
     }
@@ -250,70 +175,22 @@ export async function POST(req: NextRequest) {
 
     const payload = { voice, text: text.trim() };
 
-    // Strategy 0: Try Playwright mini-service (port 3004) — uses real
-    // Chromium browser to bypass WAF. Most reliable strategy if available.
-    try {
-      const scraperUrl =
-        "http://localhost:3004/synthesize?XTransformPort=3004";
-      const scraperRes = await fetch(scraperUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        // 70s timeout — Playwright is slow on first run
-        signal: AbortSignal.timeout(70000),
+    // Try the new freetts.ru API (synthesis + history polling)
+    const result = await tryNewApi(payload);
+    if (result.ok) {
+      return new NextResponse(new Uint8Array(result.mp3), {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Content-Length": result.mp3.length.toString(),
+          "Content-Disposition": `attachment; filename="freetts-${Date.now()}.mp3"`,
+          "Cache-Control": "no-cache",
+          "X-Engine": "freetts.ru",
+          "X-Strategy": "new-api",
+        },
       });
-      if (scraperRes.ok) {
-        const buf = Buffer.from(await scraperRes.arrayBuffer());
-        return new NextResponse(buf, {
-          status: 200,
-          headers: {
-            "Content-Type": "audio/mpeg",
-            "Content-Length": buf.length.toString(),
-            "Content-Disposition": `attachment; filename="freetts-${Date.now()}.mp3"`,
-            "Cache-Control": "no-cache",
-            "X-Engine": "freetts.ru",
-            "X-Strategy": "playwright",
-          },
-        });
-      }
-      console.log(
-        `[freetts] playwright scraper failed: HTTP ${scraperRes.status}`,
-      );
-    } catch (e) {
-      console.log(
-        `[freetts] playwright scraper unavailable: ${
-          e instanceof Error ? e.message : "unknown"
-        }`,
-      );
     }
-
-    // Strategies 1-4: Direct + public CORS proxies (likely all blocked
-    // by WAF, but try anyway as fallbacks)
-    const strategies = [
-      { name: "direct", fn: () => tryDirectFetch(payload) },
-      { name: "allorigins", fn: () => tryCorsProxy(payload) },
-      { name: "corsproxy.io", fn: () => tryCorsProxyIo(payload) },
-      { name: "codetabs", fn: () => tryCodetabsProxy(payload) },
-    ];
-
-    for (const strategy of strategies) {
-      const result = await strategy.fn();
-      if (result.ok) {
-        return new NextResponse(new Uint8Array(result.mp3), {
-          status: 200,
-          headers: {
-            "Content-Type": "audio/mpeg",
-            "Content-Length": result.mp3.length.toString(),
-            "Content-Disposition": `attachment; filename="freetts-${Date.now()}.mp3"`,
-            "Cache-Control": "no-cache",
-            "X-Engine": "freetts.ru",
-            "X-Strategy": strategy.name,
-          },
-        });
-      }
-      // Log and continue to next strategy
-      console.log(`[freetts] ${strategy.name} failed: ${result.reason}`);
-    }
+    console.log(`[freetts] new-api failed: ${result.reason}`);
 
     // All freetts strategies failed — try fallback to Z.ai SDK
     // so the user still gets audio
@@ -340,7 +217,7 @@ export async function POST(req: NextRequest) {
           "X-Engine": "z-ai-sdk",
           "X-Strategy": "freetts-unavailable-fallback",
           "X-Warning":
-            "freetts.ru WAF blocked all strategies; used Z.ai SDK as fallback",
+            "freetts.ru synthesis failed; used Z.ai SDK as fallback",
         },
       });
     } catch (fallbackErr) {
@@ -350,10 +227,9 @@ export async function POST(req: NextRequest) {
     // All strategies failed
     return NextResponse.json(
       {
-        error:
-          "freetts.ru API is currently blocked by their WAF. All 5 strategies (Playwright + direct + 3 proxies) failed, and Z.ai fallback also failed.",
+        error: `freetts.ru synthesis failed (${result.reason}). Z.ai fallback also failed.`,
         suggestion:
-          "Use the Web Speech API engine (browser native) instead. The freetts.ru voice catalogue (298 voices) is still available for browsing.",
+          "Use the Web Speech API engine (browser native) instead. The freetts.ru voice catalogue is still available for browsing.",
       },
       { status: 502 },
     );
