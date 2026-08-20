@@ -192,8 +192,38 @@ export async function POST(req: NextRequest) {
     }
     console.log(`[freetts] new-api failed: ${result.reason}`);
 
-    // All freetts strategies failed — try fallback to Z.ai SDK
-    // so the user still gets audio
+    // Fallback 1: Try local Piper TTS (offline, port 3005)
+    try {
+      const piperRes = await fetch("http://localhost:3005/synthesize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim(), voice: "dmitri" }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (piperRes.ok) {
+        const piperBuf = Buffer.from(await piperRes.arrayBuffer());
+        return new NextResponse(new Uint8Array(piperBuf), {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/wav",
+            "Content-Length": piperBuf.length.toString(),
+            "Content-Disposition": `attachment; filename="piper-fallback-${Date.now()}.wav"`,
+            "Cache-Control": "no-cache",
+            "X-Engine": "piper-local",
+            "X-Strategy": "freetts-unavailable-piper-fallback",
+            "X-Warning":
+              "freetts.ru unavailable; used local Piper TTS (Дмитрий, offline)",
+          },
+        });
+      }
+      console.log(`[freetts] piper-local failed: HTTP ${piperRes.status}`);
+    } catch (e) {
+      console.log(
+        `[freetts] piper-local unavailable: ${e instanceof Error ? e.message : "unknown"}`,
+      );
+    }
+
+    // Fallback 2: Try Z.ai SDK (requires internet)
     try {
       const ZAI = (await import("z-ai-web-dev-sdk")).default;
       const zai = await ZAI.create();

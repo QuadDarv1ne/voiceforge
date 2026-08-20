@@ -20,6 +20,9 @@ import {
   Mic,
   Upload,
   Heart,
+  HardDriveDownload,
+  User,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +31,13 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -58,6 +68,14 @@ const MAX_CHARS = 5000;
 const HISTORY_STORAGE_KEY = "voiceforge:history";
 const HISTORY_MAX = 20;
 
+/** Format seconds as m:ss */
+function formatTime(sec: number): string {
+  if (!sec || isNaN(sec)) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function Home() {
   const defaultLang = getDefaultLanguage();
 
@@ -68,6 +86,11 @@ export default function Home() {
   const [freettsVoice, setFreettsVoice] = React.useState<string>(
     FREETTS_DEFAULT_VOICE.code,
   );
+  // Piper local voices ("dmitri" is the default Russian male voice)
+  const [piperVoice, setPiperVoice] = React.useState<string>("dmitri");
+  const [piperVoices, setPiperVoices] = React.useState<
+    { id: string; name: string; lang: string; gender: string }[]
+  >([]);
   const [engine, setEngine] = React.useState<TTSEngine>("web-speech");
   const [rate, setRate] = React.useState<number>(1.0);
   const [pitch, setPitch] = React.useState<number>(1.0);
@@ -82,20 +105,65 @@ export default function Home() {
   const [freettsPlaying, setFreettsPlaying] = React.useState(false);
   const [audioCurrentTime, setAudioCurrentTime] = React.useState(0);
   const [audioDuration, setAudioDuration] = React.useState(0);
+  // Tracks the last audio URL we triggered playback for, so the effect
+  // restarts playback only for NEW audio, not for rate changes.
+  const lastPlayedUrlRef = React.useRef<string>("");
+
+  // Load available Piper voices when the piper engine is selected
+  const piperVoicesFetchedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (engine !== "piper" || piperVoicesFetchedRef.current) return;
+    piperVoicesFetchedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/piper/voices");
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && Array.isArray(json.voices)) {
+            setPiperVoices(json.voices);
+            // If current selection isn't available, pick the first
+            // voice matching the current language (ru by default)
+            const currentAvailable = json.voices.some(
+              (v: { id: string }) => v.id === piperVoice,
+            );
+            if (!currentAvailable) {
+              const ruVoice =
+                json.voices.find((v: { id: string }) =>
+                  v.id.startsWith("ru_RU"),
+                ) ?? json.voices[0];
+              if (ruVoice) setPiperVoice(ruVoice.id);
+            }
+          }
+        }
+      } catch {
+        // mini-service not running — keep default voice
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [engine]);
 
   // Auto-play when a new audio URL is set (freetts / z-ai engines)
   React.useEffect(() => {
     if (!freettsAudioUrl) return;
     const el = freettsAudioRef.current;
     if (!el) return;
-    el.src = freettsAudioUrl;
-    el.playbackRate = rate;
-    el.play().catch(() => {
-      /* user gesture required — user can press play manually */
-    });
-    // Reset progress
-    setAudioCurrentTime(0);
-    setAudioDuration(0);
+    if (lastPlayedUrlRef.current !== freettsAudioUrl) {
+      // New audio — load and play
+      lastPlayedUrlRef.current = freettsAudioUrl;
+      el.src = freettsAudioUrl;
+      el.playbackRate = rate;
+      el.play().catch(() => {
+        /* user gesture required — user can press play manually */
+      });
+      setAudioCurrentTime(0);
+      setAudioDuration(0);
+    } else {
+      // Same audio — just apply the new playback rate
+      el.playbackRate = rate;
+    }
   }, [freettsAudioUrl, rate]);
 
   // Load history from localStorage on mount
@@ -323,6 +391,54 @@ export default function Home() {
       return;
     }
 
+    // ---- Piper local engine (offline, server-side) ----
+    if (engine === "piper") {
+      if (trimmed.length > 5000) {
+        toast.warning("Слишком длинный текст для Piper", {
+          description: `Максимум 5000 символов. Сейчас: ${trimmed.length}`,
+        });
+        return;
+      }
+      try {
+        setDownloading(true);
+        const res = await fetch("/api/piper", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: trimmed,
+            voice: piperVoice,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
+        const url = URL.createObjectURL(blob);
+        setFreettsAudioUrl(url);
+        const voiceName = piperVoices.find((v) => v.id === piperVoice)?.name ?? piperVoice;
+        toast.success("Синтез завершён (офлайн)", {
+          description: `Piper · ${voiceName} · локальный движок`,
+        });
+        addHistory({
+          text: trimmed,
+          langCode,
+          langName: currentLang.name,
+          flag: currentLang.flag,
+          voiceName: `piper: ${voiceName} (offline)`,
+        });
+      } catch (e) {
+        toast.error("Ошибка Piper", {
+          description:
+            e instanceof Error ? e.message : "Неизвестная ошибка",
+        });
+      } finally {
+        setDownloading(false);
+      }
+      return;
+    }
+
     // ---- Web Speech API engine (default) ----
     if (!speech.supported) {
       toast.error("Не поддерживается", {
@@ -369,6 +485,8 @@ export default function Home() {
     charLimitExceeded,
     currentLang,
     freettsVoice,
+    piperVoice,
+    piperVoices,
     freettsAudioUrl,
     rate,
     speech,
@@ -431,17 +549,18 @@ export default function Home() {
       });
       return;
     }
-    if (trimmed.length > 1024) {
+    const maxDownloadChars = engine === "piper" ? 5000 : 1024;
+    if (trimmed.length > maxDownloadChars) {
       toast.warning("Слишком длинный текст для скачивания", {
-        description: `Максимум 1024 символа для скачивания. Сейчас: ${trimmed.length}`,
+        description: `Максимум ${maxDownloadChars} символов для скачивания. Сейчас: ${trimmed.length}`,
       });
       return;
     }
 
-    // If audio is already synthesized (freetts or z-ai engine), download it directly
+    // If audio is already synthesized (freetts/z-ai/piper engine), download it directly
     if (
       freettsAudioUrl &&
-      (engine === "freetts" || engine === "z-ai")
+      (engine === "freetts" || engine === "z-ai" || engine === "piper")
     ) {
       const a = document.createElement("a");
       a.href = freettsAudioUrl;
@@ -461,16 +580,20 @@ export default function Home() {
       const endpoint =
         engine === "freetts" && currentLang.freettsCode
           ? "/api/freetts/synthesize"
-          : "/api/tts";
+          : engine === "piper"
+            ? "/api/piper"
+            : "/api/tts";
       const payload =
         engine === "freetts" && currentLang.freettsCode
           ? { text: trimmed, voice: freettsVoice }
-          : {
-              text: trimmed,
-              voice: "tongtong",
-              speed: rate,
-              format: "wav",
-            };
+          : engine === "piper"
+            ? { text: trimmed, voice: piperVoice }
+            : {
+                text: trimmed,
+                voice: "tongtong",
+                speed: rate,
+                format: "wav",
+              };
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -507,6 +630,7 @@ export default function Home() {
     engine,
     currentLang,
     freettsVoice,
+    piperVoice,
     freettsAudioUrl,
   ]);
 
@@ -845,6 +969,46 @@ export default function Home() {
                           luodo.
                         </p>
                       </div>
+                    ) : engine === "piper" ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <HardDriveDownload className="h-4 w-4 text-blue-500" />
+                          <Badge variant="secondary" className="h-5 text-[10px]">
+                            OFFLINE
+                          </Badge>
+                          {piperVoices.length > 0 ? (
+                            <Select value={piperVoice} onValueChange={setPiperVoice}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Выберите голос" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-72">
+                                {piperVoices.map((v) => (
+                                  <SelectItem key={v.id} value={v.id}>
+                                    <span className="flex items-center gap-2">
+                                      {v.gender === "m" ? (
+                                        <UserRound className="h-4 w-4 text-blue-500" />
+                                      ) : (
+                                        <User className="h-4 w-4 text-pink-500" />
+                                      )}
+                                      <span className="font-medium capitalize">{v.name}</span>
+                                      <span className="text-xs text-muted-foreground">({v.lang})</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Загрузка списка голосов... Если не появляется, запустите
+                              mini-service: cd mini-services/piper-local && bun run dev
+                            </p>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Локальный нейросетевой синтез (Piper TTS). Работает без
+                          интернета. {piperVoices.length > 0 && `${piperVoices.length} голосов доступно.`}
+                        </p>
+                      </div>
                     ) : (
                       <>
                         <VoiceSelector
@@ -907,6 +1071,12 @@ export default function Home() {
                             фиксированного тона. Регулировка скорости
                             применяется при воспроизведении.
                           </p>
+                        ) : engine === "piper" ? (
+                          <p>
+                            Piper TTS генерирует аудио с фиксированными
+                            параметрами модели. Регулировка скорости
+                            применяется при воспроизведении через плеер.
+                          </p>
                         ) : (
                           <p>
                             Z.ai SDK поддерживает только скорость (0.5–2.0×).
@@ -937,33 +1107,58 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Hidden audio element for freetts/z-ai playback */}
-                <audio
-                  ref={freettsAudioRef}
-                  className="hidden"
-                  onPlay={() => setFreettsPlaying(true)}
-                  onPause={() => setFreettsPlaying(false)}
-                  onEnded={() => setFreettsPlaying(false)}
-                />
-
-                {/* freetts audio player (if available) */}
+                {/* Audio player for freetts/z-ai playback */}
                 {freettsAudioUrl && engine !== "web-speech" && (
                   <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                         <Mic className="h-3.5 w-3.5" />
-                        Аудио готово к воспроизведению
+                        {freettsPlaying ? "Воспроизведение..." : "Аудио готово"}
                       </span>
                       <span className="text-[11px] text-muted-foreground">
                         Движок: {engine === "freetts" ? "freetts.ru" : "Z.ai SDK"}
                       </span>
                     </div>
                     <audio
+                      ref={freettsAudioRef}
                       src={freettsAudioUrl}
                       controls
                       className="w-full"
                       style={{ height: "36px" }}
+                      onPlay={() => setFreettsPlaying(true)}
+                      onPause={() => setFreettsPlaying(false)}
+                      onEnded={() => setFreettsPlaying(false)}
+                      onTimeUpdate={(e) => {
+                        const el = e.currentTarget;
+                        setAudioCurrentTime(el.currentTime);
+                        if (el.duration && !isNaN(el.duration)) {
+                          setAudioDuration(el.duration);
+                        }
+                      }}
+                      onLoadedMetadata={(e) => {
+                        const d = e.currentTarget.duration;
+                        if (d && !isNaN(d)) setAudioDuration(d);
+                      }}
                     />
+                    {/* Custom progress bar synced to playback */}
+                    {audioDuration > 0 && (
+                      <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="tabular-nums">
+                          {formatTime(audioCurrentTime)}
+                        </span>
+                        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="absolute inset-y-0 left-0 brand-gradient transition-[width] duration-150"
+                            style={{
+                              width: `${(audioCurrentTime / audioDuration) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="tabular-nums">
+                          {formatTime(audioDuration)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1026,7 +1221,9 @@ export default function Home() {
                         ? "Синтез..."
                         : engine === "freetts"
                           ? "Синтезировать через freetts.ru"
-                          : "Синтезировать через Z.ai"}
+                          : engine === "piper"
+                            ? "Синтезировать локально (Piper)"
+                            : "Синтезировать через Z.ai"}
                     </Button>
                   )}
                   <Button
@@ -1036,7 +1233,7 @@ export default function Home() {
                     disabled={
                       downloading ||
                       !text.trim() ||
-                      (engine !== "web-speech" && text.trim().length > 1024) ||
+                      (engine !== "web-speech" && engine !== "piper" && text.trim().length > 1024) ||
                       (engine === "web-speech" && text.trim().length > 1024)
                     }
                   >

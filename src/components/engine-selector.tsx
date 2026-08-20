@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { AudioLines, Globe, Mic, Sparkles } from "lucide-react";
+import { AudioLines, Globe, Mic, Sparkles, HardDriveDownload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type TTSEngine = "web-speech" | "z-ai" | "freetts";
+export type TTSEngine = "web-speech" | "z-ai" | "freetts" | "piper";
 
 interface EngineInfo {
   id: TTSEngine;
@@ -39,6 +39,14 @@ const ENGINES: EngineInfo[] = [
     icon: <Sparkles className="h-4 w-4" />,
     accent: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   },
+  {
+    id: "piper",
+    label: "Piper (офлайн)",
+    description: "Локальный нейросетевой голос, без интернета",
+    icon: <HardDriveDownload className="h-4 w-4" />,
+    badge: "OFFLINE",
+    accent: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  },
 ];
 
 interface EngineSelectorProps {
@@ -55,7 +63,7 @@ export function EngineSelector({
   return (
     <div
       className={cn(
-        "grid grid-cols-1 gap-2 sm:grid-cols-3",
+        "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4",
         className,
       )}
       role="radiogroup"

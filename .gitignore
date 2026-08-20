@@ -86,3 +86,9 @@ env/
 
 # Mini-service runtime
 mini-services/*/node_modules/
+
+# Z.ai TTS integration archive (downloaded & extracted)
+z-ai-tts-integration/
+
+# Piper TTS binary & voice models (downloaded separately, too large for git)
+piper-tts/
