@@ -1,0 +1,11 @@
+{
+  "name": "freetts-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot run index.ts"
+  },
+  "dependencies": {
+    "@types/node": "^22.0.0"
+  }
+}
