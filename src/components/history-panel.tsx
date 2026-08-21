@@ -18,6 +18,8 @@ export interface HistoryItem {
   langName: string;
   flag: string;
   voiceName?: string;
+  /** TTS engine used for this entry (e.g. "web-speech", "freetts", "z-ai", "piper") */
+  engine?: string;
   createdAt: number;
 }
 

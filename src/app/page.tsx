@@ -56,6 +56,7 @@ import { TextStats } from "@/components/text-stats";
 import { SsmlHelper } from "@/components/ssml-helper";
 import { HistoryPanel, type HistoryItem } from "@/components/history-panel";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
+import { ZAI_VOICES, type ZaiVoice } from "@/hooks/use-zai-tts";
 import {
   LANGUAGES,
   getLanguageByCode,
@@ -76,6 +77,12 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** File extension for downloaded audio per TTS engine */
+function getDownloadExtension(engine: TTSEngine): string {
+  // freetts.ru returns MP3; Z.ai and Piper return WAV
+  return engine === "freetts" ? "mp3" : "wav";
+}
+
 export default function Home() {
   const defaultLang = getDefaultLanguage();
 
@@ -86,6 +93,7 @@ export default function Home() {
   const [freettsVoice, setFreettsVoice] = React.useState<string>(
     FREETTS_DEFAULT_VOICE.code,
   );
+  const [zaiVoice, setZaiVoice] = React.useState<ZaiVoice>("tongtong");
   // Piper local voices ("dmitri" is the default Russian male voice)
   const [piperVoice, setPiperVoice] = React.useState<string>("dmitri");
   const [piperVoices, setPiperVoices] = React.useState<
@@ -477,6 +485,7 @@ export default function Home() {
       langCode,
       langName: currentLang.name,
       flag: currentLang.flag,
+      engine: "web-speech",
       voiceName: speech.voices.find((v) => v.voiceURI === voiceURI)?.name,
     });
   }, [
@@ -607,7 +616,7 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `voiceforge-${Date.now()}.mp3`;
+      a.download = `voiceforge-${Date.now()}.${getDownloadExtension(engine)}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -888,11 +897,16 @@ export default function Home() {
                     maxLength={MAX_CHARS + 100}
                   />
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">
-                      Текущий язык:{" "}
-                      <span className="font-medium text-foreground">
-                        {currentLang.flag} {currentLang.nativeName}
-                      </span>
+<span className="text-muted-foreground">
+                          Движок:{" "}
+                          <span className="font-medium text-foreground">
+                            {engine === "freetts"
+                              ? "freetts.ru"
+                              : engine === "piper"
+                                ? "Piper (офлайн)"
+                                : "Z.ai SDK"}
+                          </span>
+                        </span>
                     </span>
                     <span
                       className={
