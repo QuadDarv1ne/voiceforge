@@ -163,7 +163,7 @@ export const LANGUAGES: LanguageConfig[] = [
     nativeName: "Türkçe",
     flag: "🇹🇷",
     sample:
-      "Merhaba! Bu, Türkçe metin seslendirme演示 demonstration. Ses doğal ve net bir şekilde üretilir.",
+      "Merhaba! Bu, Türkçe metin seslendirme demosudur. Ses doğal ve net bir şekilde üretilir.",
     freettsCode: "tr",
   },
   {

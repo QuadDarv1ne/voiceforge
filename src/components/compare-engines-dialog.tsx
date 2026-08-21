@@ -11,6 +11,7 @@ import {
   Sparkles,
   Globe,
   Mic,
+  HardDriveDownload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +28,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface CompareResult {
-  engine: "web-speech" | "z-ai" | "freetts";
+  engine: "web-speech" | "z-ai" | "freetts" | "piper";
   label: string;
   icon: React.ReactNode;
   accent: string;
@@ -91,6 +92,13 @@ export function CompareEnginesDialog({
         accent: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
         status: "idle" as const,
       },
+      {
+        engine: "piper",
+        label: "Piper (офлайн)",
+        icon: <HardDriveDownload className="h-4 w-4" />,
+        accent: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+        status: "idle" as const,
+      },
     ],
     [],
   );
@@ -108,7 +116,7 @@ export function CompareEnginesDialog({
     // Mark all as loading
     setResults(engines.map((e) => ({ ...e, status: "loading" })));
 
-    // Run Z.ai and freetts in parallel (Web Speech can't be captured to audio easily)
+    // Run Z.ai, freetts, and piper in parallel (Web Speech can't be captured to audio easily)
     const tasks: Promise<void>[] = [];
 
     // Z.ai task
@@ -225,6 +233,52 @@ export function CompareEnginesDialog({
       );
     }
 
+    // Piper local task (offline TTS)
+    tasks.push(
+      (async () => {
+        try {
+          const res = await fetch("/api/piper", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: trimmedText,
+              voice: "dmitri",
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          setResults((prev) =>
+            prev.map((r) =>
+              r.engine === "piper"
+                ? {
+                    ...r,
+                    status: "ready",
+                    audioUrl: url,
+                  }
+                : r,
+            ),
+          );
+        } catch (e) {
+          setResults((prev) =>
+            prev.map((r) =>
+              r.engine === "piper"
+                ? {
+                    ...r,
+                    status: "error",
+                    error:
+                      e instanceof Error ? e.message : "Piper service unavailable",
+                  }
+                : r,
+            ),
+          );
+        }
+      })(),
+    );
+
     // Web Speech can't easily capture audio — show as informational
     setResults((prev) =>
       prev.map((r) =>
@@ -260,11 +314,10 @@ export function CompareEnginesDialog({
 
   const handleDownload = (r: CompareResult) => {
     if (!r.audioUrl) return;
+    const ext = r.engine === "z-ai" ? "wav" : r.engine === "piper" ? "wav" : "mp3";
     const a = document.createElement("a");
     a.href = r.audioUrl;
-    a.download = `voiceforge-compare-${r.engine}-${Date.now()}.${
-      r.engine === "z-ai" ? "wav" : "mp3"
-    }`;
+    a.download = `voiceforge-compare-${r.engine}-${Date.now()}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
