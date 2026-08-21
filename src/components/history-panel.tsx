@@ -67,7 +67,7 @@ export function HistoryPanel({
 
   const handleExportCsv = React.useCallback(() => {
     if (items.length === 0) return;
-    const header = ["id", "createdAt", "langCode", "langName", "voiceName", "text"];
+    const header = ["id", "createdAt", "langCode", "langName", "engine", "voiceName", "text"];
     const escape = (s: string | number | undefined) => {
       const v = String(s ?? "");
       if (v.includes(",") || v.includes('"') || v.includes("\n")) {
@@ -83,6 +83,7 @@ export function HistoryPanel({
           new Date(it.createdAt).toISOString(),
           it.langCode,
           it.langName,
+          it.engine ?? "",
           it.voiceName ?? "",
           it.text,
         ]

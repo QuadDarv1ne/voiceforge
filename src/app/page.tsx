@@ -336,6 +336,7 @@ export default function Home() {
           langCode,
           langName: currentLang.name,
           flag: currentLang.flag,
+          engine: "freetts",
           voiceName: `${actualEngine}: ${freettsVoice}`,
         });
       } catch (e) {
@@ -386,6 +387,7 @@ export default function Home() {
           langCode,
           langName: currentLang.name,
           flag: currentLang.flag,
+          engine: "z-ai",
           voiceName: "z-ai: tongtong",
         });
       } catch (e) {
@@ -434,6 +436,7 @@ export default function Home() {
           langCode,
           langName: currentLang.name,
           flag: currentLang.flag,
+          engine: "piper",
           voiceName: `piper: ${voiceName} (offline)`,
         });
       } catch (e) {
@@ -897,16 +900,11 @@ export default function Home() {
                     maxLength={MAX_CHARS + 100}
                   />
                   <div className="flex items-center justify-between text-xs">
-<span className="text-muted-foreground">
-                          Движок:{" "}
-                          <span className="font-medium text-foreground">
-                            {engine === "freetts"
-                              ? "freetts.ru"
-                              : engine === "piper"
-                                ? "Piper (офлайн)"
-                                : "Z.ai SDK"}
-                          </span>
-                        </span>
+                    <span className="text-muted-foreground">
+                      Текущий язык:{" "}
+                      <span className="font-medium text-foreground">
+                        {currentLang.flag} {currentLang.nativeName}
+                      </span>
                     </span>
                     <span
                       className={
