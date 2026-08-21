@@ -118,11 +118,13 @@ export default function Home() {
   const lastPlayedUrlRef = React.useRef<string>("");
 
   // Load available Piper voices when the piper engine is selected
-  const piperVoicesFetchedRef = React.useRef(false);
+  const [piperVoicesLoading, setPiperVoicesLoading] =
+    React.useState(false);
+  const [piperReloadKey, setPiperReloadKey] = React.useState(0);
   React.useEffect(() => {
-    if (engine !== "piper" || piperVoicesFetchedRef.current) return;
-    piperVoicesFetchedRef.current = true;
+    if (engine !== "piper") return;
     let cancelled = false;
+    setPiperVoicesLoading(true);
     (async () => {
       try {
         const res = await fetch("/api/piper/voices");
@@ -146,12 +148,14 @@ export default function Home() {
         }
       } catch {
         // mini-service not running — keep default voice
+      } finally {
+        if (!cancelled) setPiperVoicesLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [engine]);
+  }, [engine, piperReloadKey]);
 
   // Auto-play when a new audio URL is set (freetts / z-ai engines)
   React.useEffect(() => {
@@ -365,7 +369,7 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: trimmed,
-            voice: "tongtong",
+            voice: zaiVoice,
             speed: rate,
             format: "wav",
           }),
@@ -380,7 +384,7 @@ export default function Home() {
         setFreettsAudioUrl(url);
         // Playback is triggered by the useEffect watching freettsAudioUrl
         toast.success("Синтез завершён", {
-          description: "Z.ai SDK · tongtong",
+          description: `Z.ai SDK · ${zaiVoice}`,
         });
         addHistory({
           text: trimmed,
@@ -388,7 +392,7 @@ export default function Home() {
           langName: currentLang.name,
           flag: currentLang.flag,
           engine: "z-ai",
-          voiceName: "z-ai: tongtong",
+          voiceName: `z-ai: ${zaiVoice}`,
         });
       } catch (e) {
         toast.error("Ошибка Z.ai SDK", {
@@ -504,10 +508,18 @@ export default function Home() {
     speech,
     langCode,
     voiceURI,
+    zaiVoice,
     pitch,
     volume,
     addHistory,
   ]);
+
+  // Keep a ref to the latest handleSpeak so we can trigger it from
+  // history replay after switching the engine state.
+  const handleSpeakRef = React.useRef(handleSpeak);
+  React.useEffect(() => {
+    handleSpeakRef.current = handleSpeak;
+  }, [handleSpeak]);
 
   const handlePause = React.useCallback(() => {
     if (engine === "web-speech") {
@@ -538,19 +550,39 @@ export default function Home() {
     (item: HistoryItem) => {
       setText(item.text);
       setLangCode(item.langCode);
-      // Defer speak so state updates apply
+      const eng = (item.engine as TTSEngine) || "web-speech";
+      if (eng !== "web-speech" && engine !== eng) {
+        setEngine(eng);
+      }
+      // Defer so language/engine state updates apply before we speak
       setTimeout(() => {
-        speech.speak({
-          text: item.text,
-          lang: item.langCode,
-          voiceURI: voiceURI || undefined,
-          rate,
-          pitch,
-          volume,
-        });
-      }, 50);
+        if (eng === "web-speech") {
+          // Pick a browser voice matching the item's language
+          const matching = speech.voices.filter(
+            (v) => v.lang === item.langCode,
+          );
+          const prefix = item.langCode.split("-")[0];
+          const voice =
+            matching[0] ??
+            speech.voices.find((v) => v.lang.startsWith(prefix)) ??
+            speech.voices.find((v) => v.voiceURI === voiceURI);
+          speech.speak({
+            text: item.text,
+            lang: item.langCode,
+            voiceURI: voice?.voiceURI || undefined,
+            rate,
+            pitch,
+            volume,
+          });
+        } else {
+          // Server engines (freetts / z-ai / piper): re-synthesize with
+          // the engine that was used to record the entry. handleSpeakRef
+          // points to the latest handleSpeak after the engine state update.
+          handleSpeakRef.current?.();
+        }
+      }, 100);
     },
-    [speech, voiceURI, rate, pitch, volume],
+    [engine, speech, voiceURI, rate, pitch, volume],
   );
 
   const handleDownload = React.useCallback(async () => {
@@ -576,7 +608,7 @@ export default function Home() {
     ) {
       const a = document.createElement("a");
       a.href = freettsAudioUrl;
-      a.download = `voiceforge-${engine}-${Date.now()}.mp3`;
+      a.download = `voiceforge-${engine}-${Date.now()}.${getDownloadExtension(engine)}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -602,7 +634,7 @@ export default function Home() {
             ? { text: trimmed, voice: piperVoice }
             : {
                 text: trimmed,
-                voice: "tongtong",
+                voice: zaiVoice,
                 speed: rate,
                 format: "wav",
               };
@@ -643,6 +675,7 @@ export default function Home() {
     currentLang,
     freettsVoice,
     piperVoice,
+    zaiVoice,
     freettsAudioUrl,
   ]);
 
@@ -803,8 +836,8 @@ export default function Home() {
               variant="secondary"
               className="hidden sm:inline-flex h-7 gap-1.5"
             >
-              <Sparkles className="h-3 w-3" />
-              v1.0
+<Sparkles className="h-3 w-3" />
+                v2.1
             </Badge>
             <ThemeToggle />
           </div>
@@ -973,12 +1006,33 @@ export default function Home() {
                         onChange={setFreettsVoice}
                       />
                     ) : engine === "z-ai" ? (
-                      <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                        <p className="font-medium">tongtong</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Стандартный голос Z.ai SDK. 7 голосов доступны через
-                          API: tongtong, chuichui, xiaochen, jam, kazi, douji,
-                          luodo.
+                      <div className="space-y-2">
+                        <Select
+                          value={zaiVoice}
+                          onValueChange={(v) => setZaiVoice(v as ZaiVoice)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Выберите голос" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {ZAI_VOICES.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>
+                                <span className="flex items-center gap-2">
+                                  <span className="font-medium capitalize">
+                                    {v.name}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {v.description}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {ZAI_VOICES.find((v) => v.id === zaiVoice)
+                            ?.description ?? "Стандартный голос Z.ai SDK"}
+                          . Всего доступно {ZAI_VOICES.length} голосов.
                         </p>
                       </div>
                     ) : engine === "piper" ? (
@@ -1010,10 +1064,26 @@ export default function Home() {
                               </SelectContent>
                             </Select>
                           ) : (
-                            <p className="text-xs text-muted-foreground">
-                              Загрузка списка голосов... Если не появляется, запустите
-                              mini-service: cd mini-services/piper-local && bun run dev
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs text-muted-foreground">
+                                {piperVoicesLoading
+                                  ? "Загрузка списка голосов..."
+                                  : "Mini-service не запущен или недоступен."}
+                              </p>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() =>
+                                  setPiperReloadKey((k) => k + 1)
+                                }
+                                disabled={piperVoicesLoading}
+                                title="Повторить попытку подключения к piper-local"
+                              >
+                                <RotateCcw className="mr-1 h-3 w-3" />
+                                Повторить
+                              </Button>
+                            </div>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -1127,9 +1197,16 @@ export default function Home() {
                         <Mic className="h-3.5 w-3.5" />
                         {freettsPlaying ? "Воспроизведение..." : "Аудио готово"}
                       </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Движок: {engine === "freetts" ? "freetts.ru" : "Z.ai SDK"}
-                      </span>
+<span className="text-[11px] text-muted-foreground">
+                          Движок:{" "}
+                          <span className="font-medium text-foreground">
+                            {engine === "freetts"
+                              ? "freetts.ru"
+                              : engine === "piper"
+                                ? "Piper (офлайн)"
+                                : "Z.ai SDK"}
+                          </span>
+                        </span>
                     </div>
                     <audio
                       ref={freettsAudioRef}
@@ -1361,6 +1438,8 @@ export default function Home() {
               voiceURI={voiceURI}
               freettsVoice={freettsVoice}
               freettsLangCode={currentLang.freettsCode}
+              zaiVoice={zaiVoice}
+              piperVoice={piperVoice}
               rate={rate}
               pitch={pitch}
               volume={volume}
@@ -1385,8 +1464,8 @@ export default function Home() {
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <span>
-                      <span className="font-medium text-foreground">3 движка TTS</span>{" "}
-                      — Web Speech, freetts.ru, Z.ai SDK
+                      <span className="font-medium text-foreground">4 движка TTS</span>{" "}
+                      — Web Speech, freetts.ru, Z.ai SDK, Piper (офлайн)
                     </span>
                   </li>
                   <li className="flex items-start gap-2">
@@ -1445,7 +1524,7 @@ export default function Home() {
           <StatCard value="298" label="Голосов" hint="freetts.ru" />
           <StatCard value="57" label="Языков" hint="freetts.ru" />
           <StatCard value="15" label="Языков" hint="в интерфейсе" />
-          <StatCard value="3" label="Движка" hint="Web Speech · freetts · Z.ai" />
+          <StatCard value="4" label="Движка" hint="Web Speech · freetts · Z.ai · Piper" />
         </motion.section>
       </main>
 
@@ -1480,7 +1559,7 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs">
-              <span>Web Speech · freetts.ru · Z.ai SDK</span>
+              <span>Web Speech · freetts.ru · Z.ai SDK · Piper</span>
               <span className="hidden sm:inline">·</span>
               <span className="hidden sm:inline">Next.js 16 · TypeScript</span>
             </div>

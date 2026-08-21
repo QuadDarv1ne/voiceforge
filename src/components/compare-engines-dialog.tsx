@@ -46,6 +46,8 @@ interface CompareEnginesDialogProps {
   voiceURI?: string;
   freettsVoice?: string;
   freettsLangCode: string;
+  zaiVoice?: string;
+  piperVoice?: string;
   rate: number;
   pitch: number;
   volume: number;
@@ -59,6 +61,8 @@ export function CompareEnginesDialog({
   voiceURI,
   freettsVoice,
   freettsLangCode,
+  zaiVoice = "tongtong",
+  piperVoice = "dmitri",
   rate,
   pitch,
   volume,
@@ -128,7 +132,7 @@ export function CompareEnginesDialog({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               text: trimmedText,
-              voice: "tongtong",
+              voice: zaiVoice,
               speed: rate,
               format: "wav",
             }),
@@ -242,7 +246,7 @@ export function CompareEnginesDialog({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               text: trimmedText,
-              voice: "dmitri",
+              voice: piperVoice,
             }),
           });
           if (!res.ok) {
@@ -299,6 +303,8 @@ export function CompareEnginesDialog({
     engines,
     trimmedText,
     rate,
+    zaiVoice,
+    piperVoice,
     freettsLangCode,
     freettsVoice,
   ]);
@@ -332,7 +338,7 @@ export function CompareEnginesDialog({
             Сравнение движков TTS
           </DialogTitle>
           <DialogDescription>
-            Озвучить один и тот же текст тремя движками и сравнить качество.
+            Озвучить один и тот же текст четырьмя движками и сравнить качество.
             Текст: &laquo;{trimmedText.slice(0, 80)}
             {trimmedText.length > 80 ? "…" : ""}&raquo;
           </DialogDescription>

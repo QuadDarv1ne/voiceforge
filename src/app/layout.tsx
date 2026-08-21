@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     template: "%s · VoiceForge",
   },
   description:
-    "Бесплатный онлайн-сервис озвучивания текста на 15 языках, включая русский, английский и китайский. 3 движка TTS, 298 нейроголосов freetts.ru, настраиваемые параметры, скачивание в MP3/WAV.",
+    "Бесплатный онлайн-сервис озвучивания текста на 15 языках, включая русский, английский и китайский. 4 движка TTS, 298 нейроголосов freetts.ru, настраиваемые параметры, скачивание в MP3/WAV.",
   keywords: [
     "озвучивание текста",
     "TTS",
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "VoiceForge — Озвучивание текста на 15 языках",
     description:
-      "Бесплатный онлайн-сервис озвучивания текста. 3 движка TTS, 298 нейроголосов, скачивание в MP3/WAV.",
+      "Бесплатный онлайн-сервис озвучивания текста. 4 движка TTS, 298 нейроголосов, скачивание в MP3/WAV.",
     siteName: "VoiceForge",
     type: "website",
     locale: "ru_RU",
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "VoiceForge — TTS на 15 языках",
     description:
-      "Бесплатный онлайн-сервис озвучивания текста на 15 языках. 3 движка, 298 голосов.",
+      "Бесплатный онлайн-сервис озвучивания текста на 15 языках. 4 движка, 298 голосов.",
   },
   robots: {
     index: true,
@@ -89,7 +89,7 @@ export default function RootLayout({
               "@type": "WebApplication",
               name: "VoiceForge",
               description:
-                "Бесплатный онлайн-сервис озвучивания текста на 15 языках. 3 движка TTS, 298 нейроголосов freetts.ru.",
+                "Бесплатный онлайн-сервис озвучивания текста на 15 языках. 4 движка TTS, 298 нейроголосов freetts.ru.",
               applicationCategory: "MultimediaApplication",
               operatingSystem: "Any",
               offers: {
@@ -100,7 +100,7 @@ export default function RootLayout({
               featureList: [
                 "15 языков в интерфейсе",
                 "298 нейроголосов freetts.ru на 57 языках",
-                "3 движка TTS: Web Speech, freetts.ru, Z.ai SDK",
+                "4 движка TTS: Web Speech, freetts.ru, Z.ai SDK, Piper",
                 "Скачивание аудио в MP3/WAV",
                 "Настраиваемые скорость, тон, громкость",
                 "История озвучиваний с экспортом",
