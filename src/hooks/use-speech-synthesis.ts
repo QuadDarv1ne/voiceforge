@@ -93,6 +93,7 @@ export function useSpeechSynthesis(
       typeof window !== "undefined" && "speechSynthesis" in window;
     // Set after hydration so server and client HTML render identically
     if (!supportedNow) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSupported(true);
 
     const synth = window.speechSynthesis;
@@ -201,18 +202,13 @@ export function useSpeechSynthesis(
       const synth = window.speechSynthesis;
       synth.cancel();
 
-      let chainStarted = false;
       for (const seg of segments) {
-        // Insert pause via setTimeout if needed
-        if (seg.pauseBeforeMs && seg.pauseBeforeMs > 0 && chainStarted) {
-          // Use a silent utterance as a pause — setTimeout doesn't work
-          // reliably with speech synthesis queue
-          // Instead we use a tiny utterance with volume 0
+        // Insert pause via a silent utterance — setTimeout doesn't work
+        // reliably with the speech synthesis queue, so we use a tiny
+        // utterance with volume 0 whose rate approximates the pause length.
+        if (seg.pauseBeforeMs && seg.pauseBeforeMs > 0) {
           const pauseUtterance = new SpeechSynthesisUtterance(" ");
           pauseUtterance.volume = 0;
-          pauseUtterance.rate = 0.1; // very slow = longer pause
-          // Estimate pause duration via rate: 1000ms / (rate * 100) ≈ pauseMs
-          // Actually for " " character at rate 0.1 it pauses ~1s, so scale:
           pauseUtterance.rate = Math.max(
             0.1,
             Math.min(10, 1000 / seg.pauseBeforeMs),
@@ -234,7 +230,6 @@ export function useSpeechSynthesis(
         utterance.pitch = (baseParams.pitch ?? 1) * (seg.pitchMultiplier ?? 1);
         utterance.volume = (baseParams.volume ?? 1) * (seg.volumeMultiplier ?? 1);
         synth.speak(utterance);
-        chainStarted = true;
       }
     },
     [supported],
