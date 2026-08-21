@@ -30,17 +30,6 @@ export interface SpeechSegment {
   volumeMultiplier?: number;
 }
 
-const TAG_PATTERNS: {
-  regex: RegExp;
-  apply: (segment: Partial<SpeechSegment>) => Partial<SpeechSegment>;
-}[] = [
-  // <pause ms="500" /> or <pause ms='500'/>
-  {
-    regex: /<pause\s+ms=["']?(\d+)["']?\s*\/?>/i,
-    apply: (seg) => ({ ...seg, pauseBeforeMs: 0 }), // handled separately
-  },
-];
-
 interface TagRule {
   openTag: RegExp;
   closeTag: RegExp;
