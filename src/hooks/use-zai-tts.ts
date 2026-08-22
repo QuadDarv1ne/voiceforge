@@ -134,6 +134,13 @@ export function useZaiTts(options: UseZaiTtsOptions = {}): UseZaiTtsReturn {
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Track current URL in a ref so the unmount cleanup can revoke it
+  // without calling setState (which triggers a React warning).
+  const audioUrlRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    audioUrlRef.current = audioUrl;
+  }, [audioUrl]);
+
   const synthesize = React.useCallback(
     async (params: {
       text: string;
@@ -224,13 +231,10 @@ export function useZaiTts(options: UseZaiTtsOptions = {}): UseZaiTtsReturn {
     setError(null);
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — revoke the object URL without calling setState
   React.useEffect(() => {
     return () => {
-      setAudioUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     };
   }, []);
 

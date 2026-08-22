@@ -143,7 +143,7 @@ export const LANGUAGES: LanguageConfig[] = [
     nativeName: "العربية",
     flag: "🇸🇦",
     sample:
-      "مرحبا! هذه demonstration عرض تحويل النص إلى كلام باللغة العربية. يتم إنشاء صوت طبيعي وواضح.",
+      "مرحبا! هذا عرض تحويل النص إلى كلام باللغة العربية. يتم إنشاء صوت طبيعي وواضح.",
     freettsCode: "ar",
   },
   {

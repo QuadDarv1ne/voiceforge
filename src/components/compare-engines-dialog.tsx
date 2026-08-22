@@ -69,6 +69,8 @@ export function CompareEnginesDialog({
 }: CompareEnginesDialogProps) {
   const [results, setResults] = React.useState<CompareResult[]>([]);
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
+  // Tracks which engine's audio is currently playing (for icon toggle)
+  const [playingEngine, setPlayingEngine] = React.useState<string | null>(null);
 
   const trimmedText = text.trim();
   const canCompare = trimmedText.length > 0 && trimmedText.length <= 1024;
@@ -400,12 +402,19 @@ export function CompareEnginesDialog({
                               onClick={() => {
                                 const audio = audioRefs.current[r.engine];
                                 if (audio) {
-                                  if (audio.paused) audio.play();
-                                  else audio.pause();
+                                  if (audio.paused) {
+                                    audio.play();
+                                  } else {
+                                    audio.pause();
+                                  }
                                 }
                               }}
                             >
-                              <Play className="h-3.5 w-3.5" />
+                              {playingEngine === r.engine ? (
+                                <Pause className="h-3.5 w-3.5" />
+                              ) : (
+                                <Play className="h-3.5 w-3.5" />
+                              )}
                             </Button>
                             <Button
                               variant="ghost"
@@ -440,6 +449,9 @@ export function CompareEnginesDialog({
                             controls
                             className="w-full"
                             style={{ height: "32px" }}
+                            onPlay={() => setPlayingEngine(r.engine)}
+                            onPause={() => setPlayingEngine((cur) => cur === r.engine ? null : cur)}
+                            onEnded={() => setPlayingEngine((cur) => cur === r.engine ? null : cur)}
                             onLoadedMetadata={(e) => {
                               const dur = e.currentTarget.duration;
                               if (dur && !Number.isNaN(dur)) {

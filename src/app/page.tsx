@@ -19,7 +19,6 @@ import {
   Wand2,
   Mic,
   Upload,
-  Heart,
   HardDriveDownload,
   User,
   UserRound,
@@ -83,6 +82,19 @@ function getDownloadExtension(engine: TTSEngine): string {
   return engine === "freetts" ? "mp3" : "wav";
 }
 
+/**
+ * Determine the correct file extension for download.
+ * Uses the actual audio format when available (handles freetts fallback
+ * to Piper/Z.ai which returns WAV instead of MP3).
+ */
+function resolveDownloadExtension(
+  engine: TTSEngine,
+  audioExt?: string,
+): string {
+  if (audioExt) return audioExt;
+  return getDownloadExtension(engine);
+}
+
 export default function Home() {
   const defaultLang = getDefaultLanguage();
 
@@ -108,6 +120,10 @@ export default function Home() {
   const [freettsAudioUrl, setFreettsAudioUrl] = React.useState<string | null>(
     null,
   );
+  // Tracks the actual audio format ("mp3" or "wav") of freettsAudioUrl,
+  // which may differ from the selected engine when freetts falls back to
+  // Piper/Z.ai (both return WAV instead of MP3).
+  const [freettsAudioExt, setFreettsAudioExt] = React.useState<string>("wav");
   const freettsAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [compareOpen, setCompareOpen] = React.useState(false);
   const [freettsPlaying, setFreettsPlaying] = React.useState(false);
@@ -177,6 +193,17 @@ export default function Home() {
       el.playbackRate = rate;
     }
   }, [freettsAudioUrl, rate]);
+
+  // Revoke object URL on unmount to prevent memory leak
+  const freettsAudioUrlRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    freettsAudioUrlRef.current = freettsAudioUrl;
+  }, [freettsAudioUrl]);
+  React.useEffect(() => {
+    return () => {
+      if (freettsAudioUrlRef.current) URL.revokeObjectURL(freettsAudioUrlRef.current);
+    };
+  }, []);
 
   // Load history from localStorage on mount
   React.useEffect(() => {
@@ -320,11 +347,14 @@ export default function Home() {
         const actualEngine = res.headers.get("X-Engine") || "freetts.ru";
         const strategy = res.headers.get("X-Strategy") || "unknown";
         const isFallback = strategy.includes("fallback");
+        // Determine actual audio format: freetts returns MP3, fallbacks return WAV
+        const actualExt = isFallback ? "wav" : "mp3";
 
         // Revoke previous URL to avoid memory leak
         if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
         const url = URL.createObjectURL(blob);
         setFreettsAudioUrl(url);
+        setFreettsAudioExt(actualExt);
         // Playback is triggered by the useEffect watching freettsAudioUrl
         if (isFallback) {
           toast.warning("Использован fallback", {
@@ -382,6 +412,7 @@ export default function Home() {
         if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
         const url = URL.createObjectURL(blob);
         setFreettsAudioUrl(url);
+        setFreettsAudioExt("wav");
         // Playback is triggered by the useEffect watching freettsAudioUrl
         toast.success("Синтез завершён", {
           description: `Z.ai SDK · ${zaiVoice}`,
@@ -431,6 +462,7 @@ export default function Home() {
         if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
         const url = URL.createObjectURL(blob);
         setFreettsAudioUrl(url);
+        setFreettsAudioExt("wav");
         const voiceName = piperVoices.find((v) => v.id === piperVoice)?.name ?? piperVoice;
         toast.success("Синтез завершён (офлайн)", {
           description: `Piper · ${voiceName} · локальный движок`,
@@ -608,7 +640,7 @@ export default function Home() {
     ) {
       const a = document.createElement("a");
       a.href = freettsAudioUrl;
-      a.download = `voiceforge-${engine}-${Date.now()}.${getDownloadExtension(engine)}`;
+      a.download = `voiceforge-${engine}-${Date.now()}.${resolveDownloadExtension(engine, freettsAudioExt)}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -648,10 +680,17 @@ export default function Home() {
         throw new Error(err.error || `HTTP ${res.status}`);
       }
       const blob = await res.blob();
+      // Determine actual format from response headers (handles freetts fallback)
+      const strategy = res.headers.get("X-Strategy") || "";
+      const isFallback = strategy.includes("fallback");
+      const downloadExt =
+        engine === "freetts" && !isFallback
+          ? "mp3"
+          : "wav";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `voiceforge-${Date.now()}.${getDownloadExtension(engine)}`;
+      a.download = `voiceforge-${Date.now()}.${downloadExt}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -677,6 +716,7 @@ export default function Home() {
     piperVoice,
     zaiVoice,
     freettsAudioUrl,
+    freettsAudioExt,
   ]);
 
   const handleInsertSample = React.useCallback(() => {
@@ -837,7 +877,7 @@ export default function Home() {
               className="hidden sm:inline-flex h-7 gap-1.5"
             >
 <Sparkles className="h-3 w-3" />
-                v2.1
+                v2.2
             </Badge>
             <ThemeToggle />
           </div>

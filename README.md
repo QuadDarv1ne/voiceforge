@@ -1,6 +1,6 @@
 # VoiceForge — Озвучивание текста на 15 языках
 
-![Version](https://img.shields.io/badge/version-2.1.0-purple)
+![Version](https://img.shields.io/badge/version-2.2.0-purple)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 ![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red)
@@ -10,6 +10,16 @@
 ![главная-2](img/img-2.png)
 
 Бесплатный онлайн-сервис синтеза речи на основе `Next.js 16`, поддерживающий **4 движка TTS** и **15 языков** в основном интерфейсе, с расширенным каталогом **298 голосов на 57 языках** от `freetts.ru`
+
+## 🆕 Что нового в v2.2
+
+- 🐛 **Исправлено расширение файла при fallback** — когда freetts.ru недоступен и используется fallback на Piper/Z.ai (WAV), скачивание теперь сохраняет `.wav` вместо `.mp3`
+- 🔧 **Устранена утечка памяти** — object URL аудио теперь корректно освобождается при размонтировании компонента
+- 🎬 **Иконка Play/Pause в сравнении движков** — кнопка воспроизведения в диалоге сравнения теперь показывает правильную иконку (Play/Pause) в зависимости от состояния
+- 🇸🇦 **Исправлен арабский образец текста** — убрано английское слово «demonstration», случайно оставленное в арабском тексте
+- 🧹 **Убраны неиспользуемые импорты** — `Heart` из page.tsx, `Pause` теперь используется для иконки паузы
+- ✅ **Включена проверка типов TypeScript** — `ignoreBuildErrors` установлен в `false`, так как все типы проходят чисто
+- 🧹 **Исправлен React anti-pattern в use-zai-tts** — cleanup useEffect больше не вызывает setState, используется ref
 
 ## 🆕 Что нового в v2.1
 
