@@ -546,13 +546,6 @@ export default function Home() {
     addHistory,
   ]);
 
-  // Keep a ref to the latest handleSpeak so we can trigger it from
-  // history replay after switching the engine state.
-  const handleSpeakRef = React.useRef(handleSpeak);
-  React.useEffect(() => {
-    handleSpeakRef.current = handleSpeak;
-  }, [handleSpeak]);
-
   const handlePause = React.useCallback(() => {
     if (engine === "web-speech") {
       speech.pause();
@@ -583,38 +576,133 @@ export default function Home() {
       setText(item.text);
       setLangCode(item.langCode);
       const eng = (item.engine as TTSEngine) || "web-speech";
-      if (eng !== "web-speech" && engine !== eng) {
+
+      // Switch engine if needed
+      if (eng !== engine) {
         setEngine(eng);
       }
-      // Defer so language/engine state updates apply before we speak
-      setTimeout(() => {
-        if (eng === "web-speech") {
-          // Pick a browser voice matching the item's language
-          const matching = speech.voices.filter(
-            (v) => v.lang === item.langCode,
-          );
-          const prefix = item.langCode.split("-")[0];
-          const voice =
-            matching[0] ??
-            speech.voices.find((v) => v.lang.startsWith(prefix)) ??
-            speech.voices.find((v) => v.voiceURI === voiceURI);
-          speech.speak({
-            text: item.text,
-            lang: item.langCode,
-            voiceURI: voice?.voiceURI || undefined,
-            rate,
-            pitch,
-            volume,
-          });
-        } else {
-          // Server engines (freetts / z-ai / piper): re-synthesize with
-          // the engine that was used to record the entry. handleSpeakRef
-          // points to the latest handleSpeak after the engine state update.
-          handleSpeakRef.current?.();
+
+      if (eng === "web-speech") {
+        // Web Speech: pick a browser voice matching the item's language
+        // and speak directly (no engine state dependency)
+        const matching = speech.voices.filter(
+          (v) => v.lang === item.langCode,
+        );
+        const prefix = item.langCode.split("-")[0];
+        const voice =
+          matching[0] ??
+          speech.voices.find((v) => v.lang.startsWith(prefix)) ??
+          speech.voices.find((v) => v.voiceURI === voiceURI);
+        speech.speak({
+          text: item.text,
+          lang: item.langCode,
+          voiceURI: voice?.voiceURI || undefined,
+          rate,
+          pitch,
+          volume,
+        });
+      } else {
+        // Server engines: fetch the correct API for the stored engine
+        // (not the current UI engine, which may have changed since recording)
+        const trimmed = item.text.trim();
+        if (eng === "freetts") {
+          (async () => {
+            try {
+              const res = await fetch("/api/freetts/synthesize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: trimmed,
+                  voice: freettsVoice,
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+              }
+              const blob = await res.blob();
+              if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
+              const url = URL.createObjectURL(blob);
+              setFreettsAudioUrl(url);
+              setFreettsAudioExt("mp3");
+            } catch (e) {
+              toast.error("Ошибка воспроизведения", {
+                description:
+                  e instanceof Error ? e.message : "Не удалось озвучить",
+              });
+            }
+          })();
+        } else if (eng === "z-ai") {
+          (async () => {
+            try {
+              const res = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: trimmed,
+                  voice: zaiVoice,
+                  speed: rate,
+                  format: "wav",
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+              }
+              const blob = await res.blob();
+              if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
+              const url = URL.createObjectURL(blob);
+              setFreettsAudioUrl(url);
+              setFreettsAudioExt("wav");
+            } catch (e) {
+              toast.error("Ошибка воспроизведения", {
+                description:
+                  e instanceof Error ? e.message : "Не удалось озвучить",
+              });
+            }
+          })();
+        } else if (eng === "piper") {
+          (async () => {
+            try {
+              const res = await fetch("/api/piper", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: trimmed,
+                  voice: piperVoice,
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+              }
+              const blob = await res.blob();
+              if (freettsAudioUrl) URL.revokeObjectURL(freettsAudioUrl);
+              const url = URL.createObjectURL(blob);
+              setFreettsAudioUrl(url);
+              setFreettsAudioExt("wav");
+            } catch (e) {
+              toast.error("Ошибка воспроизведения", {
+                description:
+                  e instanceof Error ? e.message : "Не удалось озвучить",
+              });
+            }
+          })();
         }
-      }, 100);
+      }
     },
-    [engine, speech, voiceURI, rate, pitch, volume],
+    [
+      engine,
+      speech,
+      voiceURI,
+      rate,
+      pitch,
+      volume,
+      freettsVoice,
+      zaiVoice,
+      piperVoice,
+      freettsAudioUrl,
+    ],
   );
 
   const handleDownload = React.useCallback(async () => {

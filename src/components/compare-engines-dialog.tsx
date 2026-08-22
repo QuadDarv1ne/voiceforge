@@ -71,6 +71,8 @@ export function CompareEnginesDialog({
   const audioRefs = React.useRef<Record<string, HTMLAudioElement | null>>({});
   // Tracks which engine's audio is currently playing (for icon toggle)
   const [playingEngine, setPlayingEngine] = React.useState<string | null>(null);
+  // Collect all audio URLs for cleanup on close
+  const audioUrlsRef = React.useRef<string[]>([]);
 
   const trimmedText = text.trim();
   const canCompare = trimmedText.length > 0 && trimmedText.length <= 1024;
@@ -145,6 +147,7 @@ export function CompareEnginesDialog({
           }
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
+          audioUrlsRef.current.push(url);
           setResults((prev) =>
             prev.map((r) =>
               r.engine === "z-ai"
@@ -191,6 +194,7 @@ export function CompareEnginesDialog({
             }
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
+            audioUrlsRef.current.push(url);
             const actualEngine = res.headers.get("X-Engine") || "freetts.ru";
             const strategy = res.headers.get("X-Strategy") || "unknown";
             setResults((prev) =>
@@ -257,6 +261,7 @@ export function CompareEnginesDialog({
           }
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
+          audioUrlsRef.current.push(url);
           setResults((prev) =>
             prev.map((r) =>
               r.engine === "piper"
@@ -311,14 +316,15 @@ export function CompareEnginesDialog({
     freettsVoice,
   ]);
 
-  // Cleanup URLs on close
+  // Cleanup URLs on close or unmount
   React.useEffect(() => {
-    if (!open) {
-      results.forEach((r) => {
-        if (r.audioUrl) URL.revokeObjectURL(r.audioUrl);
-      });
-    }
-  }, [open, results]);
+    return () => {
+      for (const url of audioUrlsRef.current) {
+        URL.revokeObjectURL(url);
+      }
+      audioUrlsRef.current = [];
+    };
+  }, []);
 
   const handleDownload = (r: CompareResult) => {
     if (!r.audioUrl) return;
